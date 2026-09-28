@@ -78,6 +78,11 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Local datasets and generated metadata
+data/raw/
+data/processed/*.csv
+data/processed/*.parquet
+
 # IPython
 profile_default/
 ipython_config.py

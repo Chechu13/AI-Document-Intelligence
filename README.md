@@ -10,6 +10,18 @@ Build a scalable document understanding pipeline that evolves from a simple OCR 
 
 The project currently targets the **SROIE (Scanned Receipts OCR and Information Extraction)** dataset as the first benchmark for experimentation and iteration.
 
+The raw SROIE dataset is not included in this repository. Place the downloaded files locally under `data/raw/SROIE/`, with one `.jpg` image and matching JSON `.txt` annotation per receipt:
+
+```text
+data/raw/SROIE/
+├── X00016469612.jpg
+├── X00016469612.txt
+├── X00016469619.jpg
+└── X00016469619.txt
+```
+
+The dataset loader validates image/annotation pairs and exposes the annotations as a pandas DataFrame. OCR, model training, and information extraction are not implemented yet.
+
 ## 3) Planned Development Phases
 
 1. **Foundation setup**: project scaffolding, data organization, reproducible environment.

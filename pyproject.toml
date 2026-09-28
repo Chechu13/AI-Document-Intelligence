@@ -23,4 +23,5 @@ dependencies = [
   "uvicorn",
   "streamlit",
   "pydantic",
+  "ipykernel>=7.3.0",
 ]
