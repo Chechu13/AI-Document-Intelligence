@@ -1,0 +1,14 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+opencv-python
+pytesseract
+datasets
+transformers
+torch
+fastapi
+uvicorn
+streamlit
+pydantic
