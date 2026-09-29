@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,7 +13,15 @@ import pandas as pd
 
 REQUIRED_FIELDS = ("company", "date", "address", "total")
 DEFAULT_DATASET_ROOT = Path("data/raw/SROIE")
-DATASET_COLUMNS = ("image_id", "image_path", *REQUIRED_FIELDS)
+DATASET_COLUMNS = (
+    "image_id",
+    "image_path",
+    "annotation_path",
+    *REQUIRED_FIELDS,
+    "duplicate_image_count",
+    "duplicate_annotation_count",
+)
+WINDOWS_DUPLICATE_SUFFIX = re.compile(r"^(?P<base>.+?)(?:\(\d+\))?$")
 
 
 @dataclass(frozen=True)
@@ -40,6 +50,40 @@ class SROIEValidationError(ValueError):
         super().__init__(message)
 
 
+def _canonical_id(path: Path) -> str:
+    match = WINDOWS_DUPLICATE_SUFFIX.fullmatch(path.stem)
+    return match.group("base") if match else path.stem
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _group_by_canonical_id(paths: list[Path]) -> dict[str, list[Path]]:
+    groups: dict[str, list[Path]] = {}
+    for path in paths:
+        groups.setdefault(_canonical_id(path), []).append(path)
+    return groups
+
+
+def _select_canonical_path(paths: list[Path]) -> Path:
+    return min(
+        paths,
+        key=lambda path: (
+            path.stem != _canonical_id(path),
+            path.as_posix(),
+        ),
+    )
+
+
+def _json_signature(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
 def load_sroie_dataset(
     dataset_root: str | Path = DEFAULT_DATASET_ROOT,
     *,
@@ -47,10 +91,12 @@ def load_sroie_dataset(
 ) -> pd.DataFrame:
     """Load SROIE images and JSON annotations into a DataFrame.
 
-    Images and annotations are matched by filename stem in the same directory.
-    By default, any validation issue raises :class:`SROIEValidationError`.
-    With ``strict=False``, invalid samples are excluded after all issues have
-    been collected, which is useful for exploratory analysis.
+    Images and annotations are grouped by canonical filename stem. A trailing
+    Windows duplicate suffix such as ``(1)`` is removed for grouping only.
+    Identical duplicate copies are represented by one canonical record, while
+    conflicting copies are reported as validation issues. By default, any
+    validation issue raises :class:`SROIEValidationError`. With ``strict=False``,
+    invalid canonical samples are excluded after all issues have been collected.
     """
 
     root = Path(dataset_root)
@@ -68,68 +114,94 @@ def load_sroie_dataset(
     issues: list[ValidationIssue] = []
     records: list[dict[str, Any]] = []
 
-    image_ids: dict[str, list[Path]] = {}
-    for image_path in image_paths:
-        image_ids.setdefault(image_path.stem, []).append(image_path)
-    for image_id, paths in image_ids.items():
-        if len(paths) > 1:
+    image_groups = _group_by_canonical_id(image_paths)
+    annotation_groups = _group_by_canonical_id(annotation_paths)
+
+    for image_id in sorted(set(image_groups) | set(annotation_groups)):
+        candidate_images = image_groups.get(image_id, [])
+        candidate_annotations = annotation_groups.get(image_id, [])
+        if not candidate_images:
             issues.append(
                 ValidationIssue(
-                    kind="duplicate image ID",
+                    kind="annotation without corresponding image",
                     image_id=image_id,
-                    detail=", ".join(str(path) for path in paths),
+                    detail=", ".join(str(path) for path in candidate_annotations),
                 )
             )
-
-    image_path_set = {path for path in image_paths}
-    for annotation_path in annotation_paths:
-        matching_image = annotation_path.with_suffix(".jpg")
-        matching_image_upper = annotation_path.with_suffix(".JPG")
-        if matching_image not in image_path_set and matching_image_upper not in image_path_set:
+            continue
+        if not candidate_annotations:
             issues.append(
                 ValidationIssue(
-                    kind="annotation without corresponding image", path=annotation_path
-                )
-            )
-
-    for image_path in image_paths:
-        matching_annotations = [
-            path
-            for path in (image_path.with_suffix(".txt"), image_path.with_suffix(".TXT"))
-            if path.exists()
-        ]
-        if not matching_annotations:
-            issues.append(
-                ValidationIssue(
-                    kind="image without annotation", path=image_path, image_id=image_path.stem
+                    kind="image without annotation",
+                    image_id=image_id,
+                    detail=", ".join(str(path) for path in candidate_images),
                 )
             )
             continue
 
-        annotation_path = matching_annotations[0]
-        try:
-            annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        image_hashes = {_sha256(path) for path in candidate_images}
+        image_conflict = len(image_hashes) > 1
+        if image_conflict:
             issues.append(
                 ValidationIssue(
-                    kind="invalid JSON annotation",
-                    path=annotation_path,
-                    image_id=image_path.stem,
-                    detail=str(exc),
+                    kind="conflicting duplicate image contents",
+                    image_id=image_id,
+                    detail=", ".join(str(path) for path in candidate_images),
+                )
+            )
+
+        parsed_annotations: list[tuple[Path, Any]] = []
+        invalid_annotation = False
+        for annotation_path in candidate_annotations:
+            try:
+                annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                issues.append(
+                    ValidationIssue(
+                        kind="invalid JSON annotation",
+                        path=annotation_path,
+                        image_id=image_id,
+                        detail=str(exc),
+                    )
+                )
+                invalid_annotation = True
+                continue
+            if not isinstance(annotation, dict):
+                issues.append(
+                    ValidationIssue(
+                        kind="invalid JSON annotation",
+                        path=annotation_path,
+                        image_id=image_id,
+                        detail="annotation must contain a JSON object",
+                    )
+                )
+                invalid_annotation = True
+                continue
+            parsed_annotations.append((annotation_path, annotation))
+
+        if invalid_annotation or image_conflict or not parsed_annotations:
+            continue
+
+        annotation_hashes = {_sha256(path) for path in candidate_annotations}
+        annotation_signatures = {_json_signature(annotation) for _, annotation in parsed_annotations}
+        if len(annotation_hashes) > 1 or len(annotation_signatures) > 1:
+            issues.append(
+                ValidationIssue(
+                    kind="conflicting duplicate annotation contents",
+                    image_id=image_id,
+                    detail=", ".join(str(path) for path in candidate_annotations),
                 )
             )
             continue
 
-        if not isinstance(annotation, dict):
-            issues.append(
-                ValidationIssue(
-                    kind="invalid JSON annotation",
-                    path=annotation_path,
-                    image_id=image_path.stem,
-                    detail="annotation must contain a JSON object",
-                )
-            )
-            continue
+        image_path = _select_canonical_path(candidate_images)
+        annotation_path, annotation = min(
+            parsed_annotations,
+            key=lambda item: (
+                item[0].stem != _canonical_id(item[0]),
+                item[0].as_posix(),
+            ),
+        )
 
         missing_fields = [field for field in REQUIRED_FIELDS if field not in annotation]
         if missing_fields:
@@ -137,7 +209,7 @@ def load_sroie_dataset(
                 ValidationIssue(
                     kind="missing required fields",
                     path=annotation_path,
-                    image_id=image_path.stem,
+                    image_id=image_id,
                     detail=", ".join(missing_fields),
                 )
             )
@@ -153,7 +225,7 @@ def load_sroie_dataset(
                 ValidationIssue(
                     kind="empty annotation values",
                     path=annotation_path,
-                    image_id=image_path.stem,
+                    image_id=image_id,
                     detail=", ".join(empty_fields),
                 )
             )
@@ -163,9 +235,12 @@ def load_sroie_dataset(
 
         records.append(
             {
-                "image_id": image_path.stem,
+                "image_id": image_id,
                 "image_path": str(image_path),
+                "annotation_path": str(annotation_path),
                 **{field: str(annotation[field]) for field in REQUIRED_FIELDS},
+                "duplicate_image_count": len(candidate_images),
+                "duplicate_annotation_count": len(candidate_annotations),
             }
         )
 
