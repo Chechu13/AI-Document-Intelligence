@@ -82,6 +82,7 @@ target/
 data/raw/
 data/processed/*.csv
 data/processed/*.parquet
+data/processed/*.jsonl
 
 # IPython
 profile_default/

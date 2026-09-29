@@ -92,6 +92,7 @@ ai-document-intelligence/
 │   └── processed/
 ├── notebooks/
 │   ├── 01_eda.ipynb
+│   ├── 02_ocr_baseline.ipynb
 │   └── 02_error_analysis.ipynb
 ├── src/
 │   ├── data/
