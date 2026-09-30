@@ -20,7 +20,7 @@ data/raw/SROIE/
 └── X00016469619.txt
 ```
 
-The dataset loader validates image/annotation pairs and exposes the annotations as a pandas DataFrame. A Tesseract OCR baseline is available; field extraction and model training are not implemented yet.
+The dataset loader validates image/annotation pairs and exposes the annotations as a pandas DataFrame. A Tesseract OCR baseline and an interpretable rule-based KIE baseline are available; machine-learning extraction is not implemented yet.
 
 ## 3) OCR Baseline
 
@@ -49,7 +49,7 @@ Run OCR over the valid canonical SROIE records:
 from src.ocr import run_sroie_ocr
 
 summary = run_sroie_ocr(
-		"data/raw/0325updated.task2train(626p)-20260928T174749Z-1-001",
+		"data/raw/SROIE",
 		"data/processed/sroie_ocr.jsonl",
 )
 print(summary)
@@ -80,7 +80,21 @@ result = engine.recognize_path("path/to/receipt.jpg")
 The preprocessing function returns a new grayscale Pillow image and does not
 modify the source image. OCR result fields and status handling are unchanged.
 
-## 4) Planned Development Phases
+## 4) Rule-based KIE baseline
+
+The first KIE baseline is implemented in `src/extraction/`. It is deterministic
+and interpretable, using OCR text together with word bounding boxes and
+confidence values to extract the SROIE fields `company`, `date`, `address`, and
+`total`. Its structured `ExtractionResult` interface is separate from OCR so a
+future NLP or layout-aware Transformer extractor can replace the rules without
+changing evaluation code.
+
+The evaluator reports exact match, normalized exact match, Precision, Recall,
+F1, and macro-average F1. Run `notebooks/05_kie_baseline.ipynb` to evaluate the
+baseline on the grayscale-plus-contrast OCR output. No KIE performance numbers
+are claimed here because they are produced by the notebook from local data.
+
+## 5) Planned Development Phases
 
 1. **Foundation setup**: project scaffolding, data organization, reproducible environment.
 2. **Baseline**: OCR + rule-based field extraction.
@@ -88,7 +102,7 @@ modify the source image. OCR result fields and status handling are unchanged.
 4. **Modeling**: NLP and layout-aware Transformer models for document understanding.
 5. **Serving & UX**: API and Streamlit interface for inference workflows.
 
-## 5) Installation
+## 6) Installation
 
 ```bash
 python -m venv .venv
@@ -102,7 +116,7 @@ Or install via project metadata:
 pip install .
 ```
 
-## 6) Project Structure
+## 7) Project Structure
 
 ```text
 ai-document-intelligence/
@@ -113,11 +127,13 @@ ai-document-intelligence/
 │   ├── 01_eda.ipynb
 │   ├── 02_ocr_baseline.ipynb
 │   ├── 03_error_analysis.ipynb
-│   └── 04_preprocessing_experiments.ipynb
+│   ├── 04_preprocessing_experiments.ipynb
+│   └── 05_kie_baseline.ipynb
 ├── src/
 │   ├── data/
 │   ├── preprocessing/
 │   ├── ocr/
+│   ├── extraction/
 │   ├── models/
 │   ├── evaluation/
 │   └── inference/
@@ -134,7 +150,7 @@ ai-document-intelligence/
 └── Dockerfile
 ```
 
-## 7) Disclaimer
+## 8) Disclaimer
 
 This repository is **experimental** and intended for **research/portfolio purposes**. It is not production-ready at this stage.
 
