@@ -29,6 +29,12 @@ def enhance_contrast(image: Image.Image, factor: float = 2.0) -> Image.Image:
     return ImageEnhance.Contrast(image).enhance(factor)
 
 
+def grayscale_contrast_image(image: Image.Image, factor: float = 2.0) -> Image.Image:
+    """Return a grayscale copy with configurable contrast enhancement."""
+
+    return enhance_contrast(grayscale_image(image), factor=factor)
+
+
 def threshold_image(image: Image.Image, threshold: int = 128) -> Image.Image:
     """Return a binary copy of a grayscale image using ``threshold``."""
 

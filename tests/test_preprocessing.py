@@ -3,6 +3,7 @@ from PIL import Image
 from src.ocr import (
     TesseractOCREngine,
     enhance_contrast,
+    grayscale_contrast_image,
     grayscale_image,
     resize_image,
     threshold_image,
@@ -39,6 +40,18 @@ def test_contrast_enhancement_returns_valid_image_without_mutating_input() -> No
     assert image.getpixel((0, 0)) == 100
 
 
+def test_grayscale_contrast_pipeline_returns_l_image_without_mutating_input() -> None:
+    image = Image.new("RGB", (4, 3), (10, 20, 30))
+    original_pixel = image.getpixel((0, 0))
+
+    enhanced = grayscale_contrast_image(image)
+
+    assert enhanced.mode == "L"
+    assert enhanced.size == image.size
+    assert image.mode == "RGB"
+    assert image.getpixel((0, 0)) == original_pixel
+
+
 def test_threshold_returns_binary_image() -> None:
     image = Image.new("L", (2, 1))
     image.putdata([50, 200])
@@ -65,13 +78,13 @@ def test_tesseract_engine_applies_optional_preprocessor(monkeypatch) -> None:
     }
 
     def preprocess(image: Image.Image) -> Image.Image:
-        resized = resize_image(image, scale=2)
-        seen_sizes.append(resized.size)
-        return resized
+        processed = grayscale_contrast_image(image)
+        seen_sizes.append((processed.mode, processed.size))
+        return processed
 
     monkeypatch.setattr("src.ocr.engine.pytesseract.image_to_data", lambda *args, **kwargs: data)
 
     result = TesseractOCREngine(preprocess=preprocess).recognize_image(Image.new("RGB", (5, 4)))
 
     assert result.status == "success"
-    assert seen_sizes == [(10, 8)]
+    assert seen_sizes == [("L", (5, 4))]

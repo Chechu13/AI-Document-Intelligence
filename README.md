@@ -61,6 +61,25 @@ boxes, confidence values, and an observable `success`, `empty`, or `failure`
 status. The baseline does not extract receipt fields, correct OCR output, or
 guarantee reliable recognition on poor-quality images.
 
+### Selected preprocessing option
+
+The SROIE preprocessing experiment in `notebooks/03_error_analysis.ipynb` and
+`notebooks/04_preprocessing_experiments.ipynb` compared resize, grayscale plus
+contrast enhancement, and grayscale plus thresholding. Grayscale plus contrast
+was selected because it produced the strongest field coverage in the experiment
+and eliminated empty OCR results on the validated 624-sample set. It is opt-in;
+`TesseractOCREngine()` keeps the original baseline behavior unchanged:
+
+```python
+from src.ocr import TesseractOCREngine, grayscale_contrast_image
+
+engine = TesseractOCREngine(preprocess=grayscale_contrast_image)
+result = engine.recognize_path("path/to/receipt.jpg")
+```
+
+The preprocessing function returns a new grayscale Pillow image and does not
+modify the source image. OCR result fields and status handling are unchanged.
+
 ## 4) Planned Development Phases
 
 1. **Foundation setup**: project scaffolding, data organization, reproducible environment.
@@ -93,7 +112,8 @@ ai-document-intelligence/
 ├── notebooks/
 │   ├── 01_eda.ipynb
 │   ├── 02_ocr_baseline.ipynb
-│   └── 02_error_analysis.ipynb
+│   ├── 03_error_analysis.ipynb
+│   └── 04_preprocessing_experiments.ipynb
 ├── src/
 │   ├── data/
 │   ├── preprocessing/
