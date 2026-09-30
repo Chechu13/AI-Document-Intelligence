@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from PIL import Image, UnidentifiedImageError
 import pytesseract
 
 OCRStatus = Literal["success", "empty", "failure"]
+ImagePreprocessor = Callable[[Image.Image], Image.Image]
 
 
 @dataclass(frozen=True)
@@ -84,9 +85,16 @@ def _line_text(data: dict[str, list[Any]], word_count: int) -> str:
 class TesseractOCREngine:
     """OCR backend using the locally installed Tesseract executable."""
 
-    def __init__(self, *, language: str = "eng", config: str = "") -> None:
+    def __init__(
+        self,
+        *,
+        language: str = "eng",
+        config: str = "",
+        preprocess: ImagePreprocessor | None = None,
+    ) -> None:
         self.language = language
         self.config = config
+        self.preprocess = preprocess
 
     def recognize_path(self, image_path: str | Path) -> OCRResult:
         path = Path(image_path)
@@ -102,6 +110,8 @@ class TesseractOCREngine:
 
     def recognize_image(self, image: Image.Image) -> OCRResult:
         try:
+            if self.preprocess is not None:
+                image = self.preprocess(image)
             data = pytesseract.image_to_data(
                 image,
                 lang=self.language,
